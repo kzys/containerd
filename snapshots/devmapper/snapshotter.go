@@ -37,6 +37,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 )
 
 func init() {
@@ -390,9 +391,23 @@ func (s *Snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 	mounts := s.buildMounts(snap)
 
 	// Remove default directories not expected by the container image
-	_ = mount.WithTempMount(ctx, mounts, func(root string) error {
-		return os.Remove(filepath.Join(root, "lost+found"))
+	mountErr := mount.WithTempMount(ctx, mounts, func(root string) error {
+		dir, err := os.Open(root)
+		if err != nil {
+			return err
+		}
+		defer dir.Close()
+
+		err = os.Remove(filepath.Join(root, "lost+found"))
+		if err != nil {
+			return err
+		}
+
+		return unix.Syncfs(int(dir.Fd()))
 	})
+	if mountErr != nil {
+		log.G(ctx).WithError(mountErr).Errorf("failed to remove 'lost+found' from %v", mounts)
+	}
 
 	return mounts, nil
 }

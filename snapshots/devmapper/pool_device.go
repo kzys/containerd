@@ -304,6 +304,20 @@ func (p *PoolDevice) CreateSnapshotDevice(ctx context.Context, deviceName string
 		return metaErr
 	}
 
+	if p.IsLoaded(deviceName) {
+		log.G(ctx).Debugf("suspending %q", deviceName)
+		suspendErr := p.SuspendDevice(ctx, deviceName)
+		if suspendErr != nil {
+			return suspendErr
+		}
+		defer func() {
+			err := p.ResumeDevice(ctx, deviceName)
+			if err != nil {
+				log.G(ctx).WithError(err).Errorf("failed to resume %q", baseInfo.Name)
+			}
+		}()
+	}
+
 	// Create thin device snapshot
 	devErr = p.createSnapshot(ctx, baseInfo, snapInfo)
 	if devErr != nil {
